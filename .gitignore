@@ -1,0 +1,8 @@
+build*
+src
+_deps
+
+*.tgz
+*.tar.*
+.vscode
+System/bin
