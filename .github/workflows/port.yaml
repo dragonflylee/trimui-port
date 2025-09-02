@@ -1,0 +1,59 @@
+name: build
+
+on:
+  push:
+    branches: [ smartpro ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: install toolchain
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y meson p7zip-full
+        sudo chown $(id -u):$(id -g) /opt
+        wget -q https://github.com/trimui/toolchain_sdk_smartpro/releases/download/20231018/aarch64-linux-gnu-7.5.0-linaro.tgz
+        wget -q https://github.com/trimui/toolchain_sdk_smartpro/releases/download/20231018/SDK_usr_tg5040_a133p.tgz
+        make toolchain
+    - name: build depency
+      run: make download curl libwebp mpv TMPDIR=${{ runner.temp }}
+    - name: checkout wiliwili
+      uses: actions/checkout@v4
+      with:
+        repository: dragonflylee/wiliwili
+        submodules: true
+        fetch-depth: 0
+        ref: dev
+        path: src/wiliwili
+    - name: build wiliwili
+      run: |
+        make wiliwili
+        mv build/wiliwili/wiliwili build/wiliwili/resources WiliWili
+        rm WiliWili/resources/font/keymap_*.ttf
+        cp -f trimui.ttf WiliWili/resources/font/switch_icons.ttf
+        7z a -mx=9 WiliWili-tg5040.7z ./WiliWili
+    - name: checkout switchfin
+      uses: actions/checkout@v4
+      with:
+        repository: dragonflylee/switchfin
+        submodules: true
+        fetch-tags: true
+        ref: dev
+        path: src/switchfin
+    - name: build switchfin
+      run: |
+        make switchfin
+        mv build/switchfin/Switchfin build/switchfin/resources Switchfin
+        rm Switchfin/resources/font/keymap_*.ttf
+        cp -f trimui.ttf Switchfin/resources/font/switch_icons.ttf
+        7z a -mx=9 Switchfin-tg5040.7z ./Switchfin
+    - name: Upload packages
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: tg5040
+        files: "*-tg5040.7z"
