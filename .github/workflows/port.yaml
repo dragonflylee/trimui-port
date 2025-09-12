@@ -57,3 +57,11 @@ jobs:
       with:
         tag_name: tg5040
         files: "*-tg5040.7z"
+    - name: Archive Build Logs
+      if: ${{ failure() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: logs
+        path: |
+          build/ffmpeg/ffbuild
+          build/*/meson-logs

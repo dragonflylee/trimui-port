@@ -30,6 +30,7 @@ download:
 	wget -qO- https://ffmpeg.org/releases/ffmpeg-6.1.1.tar.xz | tar Jxf - -C $(TMPDIR)
 	wget -qO- https://github.com/mpv-player/mpv/archive/v0.36.0.tar.gz | tar zxf - -C $(TMPDIR)
 	patch -d $(TMPDIR)/ffmpeg-6.1.1 -Nbp1 -i $(CURDIR)/patches/ffmpeg-v4l2-request.patch
+	patch -d $(TMPDIR)/mpv-0.36.0 -Nbp1 -i $(CURDIR)/patches/mpv-v4l2-request.patch
 
 SDL2:
 	tar zxf SDL2-2.26.1.GE8300.tgz -C $(TMPDIR)
@@ -117,7 +118,7 @@ ffmpeg: libass libdrm
 	$(TMPDIR)/ffmpeg-6.1.1/configure --prefix=/usr --disable-shared --enable-static \
 		--enable-cross-compile --cross-prefix=aarch64-linux-gnu- --pkg-config=pkg-config \
 		--arch=aarch64 --cpu=cortex-a53 --target-os=linux --enable-pic --enable-neon \
-		--extra-cflags="-I$(TMPDIR)/v4l-utils-1.24.1/include -I$(PREFIX)/include" \
+		--extra-cflags="-I$(TMPDIR)/v4l-utils-1.24.1/include -I$(CURDIR)/include -I$(PREFIX)/include" \
 		--extra-ldflags="-L$(PREFIX)/lib" --sysroot=$(SYSROOT) \
 		--disable-runtime-cpudetect --disable-programs --disable-debug --disable-avdevice \
 		--enable-nonfree --enable-openssl --disable-doc --enable-zlib --enable-libass \
@@ -130,7 +131,7 @@ ffmpeg: libass libdrm
 mpv: ffmpeg
 	meson setup build/mpv $(TMPDIR)/mpv-0.36.0 --cross-file=$(CURDIR)/trimui.ini \
 		--default-library=static -Dlibmpv=true -Dcplayer=false -Dtests=false \
-		-Dlua=disabled -Dlibarchive=disabled -Dsdl2=enabled
+		-Dlua=disabled -Dlibarchive=disabled -Dsdl2=enabled -Dv4l2request=enabled
 	meson compile -C build/mpv
 	meson install -C build/mpv --destdir=$(SYSROOT)
 
