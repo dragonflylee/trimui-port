@@ -1,0 +1,174 @@
+TRIMUI ?= /opt/trimui
+TMPDIR ?= $(CURDIR)/src
+SYSROOT=$(TRIMUI)/sysroot
+PREFIX=$(SYSROOT)/usr
+
+export PATH=$(SYSROOT)/bin:$(TRIMUI)/bin:$(shell printenv PATH)
+export PKG_CONFIG_LIBDIR=$(PREFIX)/lib/pkgconfig
+export PKG_CONFIG_SYSROOT_DIR=$(SYSROOT)
+export LD_LIBRARY_PATH=$(PREFIX)/lib
+
+all:
+	pkg-config --modversion Freetype
+
+toolchain:
+# apt install --no-install-recommends wget cmake make ninja-build pkgconf
+	$(RM) -r $(TRIMUI)
+	mkdir -p $(TRIMUI) $(CURDIR)/System/bin
+	tar zxf aarch64-linux-gnu-7.5.0-linaro.tgz -C $(TRIMUI) --strip-components=1
+	mv $(TRIMUI)/aarch64-linux-gnu/libc $(SYSROOT)
+	tar zxf SDK_usr_tg5040_a133p.tgz -C $(SYSROOT)
+
+download:
+	wget -qO- https://curl.se/download/curl-8.14.1.tar.xz | tar Jxf - -C $(TMPDIR)
+	wget -qO- https://github.com/webmproject/libwebp/archive/v1.4.0.tar.gz | tar zxf - -C $(TMPDIR)
+	wget -qO- https://github.com/harfbuzz/harfbuzz/releases/download/7.3.0/harfbuzz-7.3.0.tar.xz | tar Jxf - -C $(TMPDIR)
+	wget -qO- https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz | tar Jxf - -C $(TMPDIR)
+	wget -qO- https://github.com/libass/libass/releases/download/0.17.4/libass-0.17.4.tar.xz | tar Jxf - -C $(TMPDIR)
+	wget -qO- https://dri.freedesktop.org/libdrm/libdrm-2.4.120.tar.xz | tar Jxf - -C $(TMPDIR)
+	wget -qO- https://linuxtv.org/downloads/v4l-utils/v4l-utils-1.24.1.tar.bz2 | tar jxf - -C $(TMPDIR)
+	wget -qO- https://ffmpeg.org/releases/ffmpeg-6.1.1.tar.xz | tar Jxf - -C $(TMPDIR)
+	wget -qO- https://github.com/mpv-player/mpv/archive/v0.36.0.tar.gz | tar zxf - -C $(TMPDIR)
+	patch -d $(TMPDIR)/ffmpeg-6.1.1 -Nbp1 -i $(CURDIR)/patches/ffmpeg-v4l2-request.patch
+	patch -d $(TMPDIR)/mpv-0.36.0 -Nbp1 -i $(CURDIR)/patches/mpv-v4l2-request.patch
+
+SDL2:
+	tar zxf SDL2-2.26.1.GE8300.tgz -C $(TMPDIR)
+	cd $(TMPDIR)/SDL2-2.26.1 && \
+    ./configure --host=aarch64-linux-gnu --prefix=/usr --with-sysroot=$(SYSROOT) \
+			--disable-video-wayland --disable-pulseaudio && \
+    make -j$(shell nproc) && make DESTDIR=$(SYSROOT) install
+
+dropbear:
+	wget -qO- https://dropbear.nl/mirror/releases/dropbear-2025.88.tar.bz2 | tar jxf - -C $(TMPDIR)
+	cd $(TMPDIR)/dropbear-2025.88 && \
+		./configure --host=aarch64-linux-gnu --prefix=/usr \
+			CFLAGS="--sysroot=$(SYSROOT)" \
+			LDFLAGS="--sysroot=$(SYSROOT) -L$(SYSROOT)/usr/lib" && \
+		make PROGRAMS=dropbear -j$(shell nproc) && \
+		install -t $(CURDIR)/System/bin dropbear
+
+curl:
+	cmake -B build/curl -G Ninja -S $(TMPDIR)/curl-8.14.1 \
+		-DCMAKE_TOOLCHAIN_FILE=$(CURDIR)/trimui.cmake \
+		-DCMAKE_INSTALL_PREFIX=/usr \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DBUILD_SHARED_LIBS=OFF \
+		-DCURL_USE_OPENSSL=ON \
+		-DHTTP_ONLY=ON \
+		-DCURL_DISABLE_PROGRESS_METER=ON \
+		-DBUILD_CURL_EXE=OFF \
+		-DBUILD_TESTING=OFF \
+		-DBUILD_EXAMPLES=OFF \
+		-DBUILD_LIBCURL_DOCS=OFF \
+		-DUSE_NGHTTP2=OFF \
+		-DUSE_LIBIDN2=OFF \
+		-DCURL_BROTLI=OFF \
+		-DCURL_ZSTD=OFF \
+		-DCURL_USE_LIBSSH2=OFF \
+		-DCURL_USE_LIBPSL=OFF
+	cmake --build build/curl
+	DESTDIR=$(SYSROOT) cmake --install build/curl
+
+libwebp:
+	cmake -B build/libwebp -G Ninja -S $(TMPDIR)/libwebp-1.4.0 \
+		-DCMAKE_TOOLCHAIN_FILE=$(CURDIR)/trimui.cmake \
+		-DCMAKE_INSTALL_PREFIX=/usr \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DBUILD_SHARED_LIBS=OFF \
+		-DWEBP_BUILD_EXTRAS=OFF \
+		-DWEBP_BUILD_ANIM_UTILS=OFF \
+		-DWEBP_BUILD_CWEBP=OFF \
+		-DWEBP_BUILD_DWEBP=OFF \
+		-DWEBP_BUILD_GIF2WEBP=OFF \
+		-DWEBP_BUILD_IMG2WEBP=OFF \
+		-DWEBP_BUILD_VWEBP=OFF \
+		-DWEBP_BUILD_WEBPINFO=OFF \
+		-DWEBP_BUILD_WEBPMUX=OFF \
+		-DWEBP_BUILD_LIBWEBPMUX=OFF
+	cmake --build build/libwebp
+	DESTDIR=$(SYSROOT) cmake --install build/libwebp
+
+harfbuzz:
+	meson setup build/harfbuzz $(TMPDIR)/harfbuzz-7.3.0 --cross-file=$(CURDIR)/trimui.ini \
+		-Dfreetype=enabled -Dgobject=disabled -Dcairo=disabled -Dchafa=disabled -Dtests=disabled \
+		-Dintrospection=disabled -Ddocs=disabled -Ddoc_tests=false -Dutilities=disabled
+	meson compile -C build/harfbuzz
+	meson install -C build/harfbuzz --destdir=$(SYSROOT)
+
+fribidi:
+	meson setup build/fribidi $(TMPDIR)/fribidi-1.0.16 --cross-file=$(CURDIR)/trimui.ini \
+		-Dbin=false -Ddocs=false -Dtests=false
+	meson compile -C build/fribidi
+	meson install -C build/fribidi --destdir=$(SYSROOT)
+
+libass: harfbuzz fribidi
+	meson setup build/libass $(TMPDIR)/libass-0.17.4 --cross-file=$(CURDIR)/trimui.ini
+	meson compile -C build/libass
+	meson install -C build/libass --destdir=$(SYSROOT)
+
+libdrm:
+	meson setup build/libdrm $(TMPDIR)/libdrm-2.4.120 --cross-file=$(CURDIR)/trimui.ini \
+		--default-library=static -Dcairo-tests=disabled -Dtests=false
+	meson compile -C build/libdrm
+	meson install -C build/libdrm --destdir=$(SYSROOT)
+
+ffmpeg: libass libdrm
+	mkdir -p build/ffmpeg && cd build/ffmpeg && \
+	$(TMPDIR)/ffmpeg-6.1.1/configure --prefix=/usr --disable-shared --enable-static \
+		--enable-cross-compile --cross-prefix=aarch64-linux-gnu- --pkg-config=pkg-config \
+		--arch=aarch64 --cpu=cortex-a53 --target-os=linux --enable-pic --enable-neon \
+		--extra-cflags="-I$(TMPDIR)/v4l-utils-1.24.1/include -I$(CURDIR)/include -I$(PREFIX)/include" \
+		--extra-ldflags="-L$(PREFIX)/lib" --sysroot=$(SYSROOT) \
+		--disable-runtime-cpudetect --disable-programs --disable-debug --disable-avdevice \
+		--enable-nonfree --enable-openssl --disable-doc --enable-zlib --enable-libass \
+		--enable-libdrm --enable-libv4l2 --enable-v4l2_m2m --enable-libudev --enable-v4l2-request \
+		--disable-protocols --enable-protocol=file,http,tcp,udp,hls,https,tls,httpproxy \
+		--disable-muxers --disable-encoders --enable-encoder=png
+	make -C build/ffmpeg -j$(shell nproc)
+	make -C build/ffmpeg DESTDIR=$(SYSROOT) install
+
+mpv: ffmpeg
+	meson setup build/mpv $(TMPDIR)/mpv-0.36.0 --cross-file=$(CURDIR)/trimui.ini \
+		--default-library=static -Dlibmpv=true -Dcplayer=false -Dtests=false \
+		-Dlua=disabled -Dlibarchive=disabled -Dsdl2=enabled -Dv4l2request=enabled
+	meson compile -C build/mpv
+	meson install -C build/mpv --destdir=$(SYSROOT)
+
+wiliwili:
+	cmake -B build/wiliwili -G Ninja -S $(TMPDIR)/wiliwili \
+		-DCMAKE_TOOLCHAIN_FILE=$(CURDIR)/trimui.cmake \
+		-DCMAKE_MODULE_PATH=$(CURDIR)/cmake \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DPLATFORM_DESKTOP=ON \
+		-DCMAKE_CXX_FLAGS="-DTRIMUI" \
+		-DUSE_SYSTEM_CURL=ON \
+		-DUSE_SYSTEM_SDL2=ON \
+		-DMPV_NO_FB=ON \
+		-DUSE_SDL2=ON \
+		-DUSE_GLES3=ON
+	cmake --build build/wiliwili
+
+switchfin:
+	cmake -B build/switchfin -G Ninja -S $(TMPDIR)/switchfin \
+		-DCMAKE_TOOLCHAIN_FILE=$(CURDIR)/trimui.cmake \
+		-DCMAKE_MODULE_PATH=$(CURDIR)/cmake \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DPLATFORM_DESKTOP=ON \
+		-DCMAKE_CXX_FLAGS="-DTRIMUI" \
+		-DUSE_SYSTEM_CURL=ON \
+		-DUSE_SYSTEM_SDL2=ON \
+		-DUSE_SDL2=ON \
+		-DUSE_GLES3=ON
+	cmake --build build/switchfin
+
+borealis:
+	cmake -B build/borealis -G Ninja -S $(TMPDIR)/wiliwili/library/borealis \
+		-DCMAKE_TOOLCHAIN_FILE=$(CURDIR)/trimui.cmake \
+		-DCMAKE_MODULE_PATH=$(CURDIR)/cmake \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DPLATFORM_DESKTOP=ON \
+		-DUSE_SYSTEM_SDL2=ON \
+		-DUSE_SDL2=ON \
+		-DUSE_GLES3=ON
+	cmake --build build/borealis

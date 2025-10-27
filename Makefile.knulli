@@ -20,6 +20,7 @@ toolchain:
 	tar zxf SDK_usr_tg5040_a133p.tgz -C $(SYSROOT)
 
 download:
+	wget -qO- https://github.com/openssl/openssl/releases/download/openssl-3.4.0/openssl-3.4.0.tar.gz | tar zxf - -C $(TMPDIR)
 	wget -qO- https://curl.se/download/curl-8.14.1.tar.xz | tar Jxf - -C $(TMPDIR)
 	wget -qO- https://github.com/webmproject/libwebp/archive/v1.4.0.tar.gz | tar zxf - -C $(TMPDIR)
 	wget -qO- https://github.com/harfbuzz/harfbuzz/releases/download/7.3.0/harfbuzz-7.3.0.tar.xz | tar Jxf - -C $(TMPDIR)
@@ -27,10 +28,8 @@ download:
 	wget -qO- https://github.com/libass/libass/releases/download/0.17.4/libass-0.17.4.tar.xz | tar Jxf - -C $(TMPDIR)
 	wget -qO- https://dri.freedesktop.org/libdrm/libdrm-2.4.120.tar.xz | tar Jxf - -C $(TMPDIR)
 	wget -qO- https://linuxtv.org/downloads/v4l-utils/v4l-utils-1.24.1.tar.bz2 | tar jxf - -C $(TMPDIR)
-	wget -qO- https://ffmpeg.org/releases/ffmpeg-6.1.1.tar.xz | tar Jxf - -C $(TMPDIR)
+	wget -qO- https://ffmpeg.org/releases/ffmpeg-4.4.1.tar.xz | tar Jxf - -C $(TMPDIR)
 	wget -qO- https://github.com/mpv-player/mpv/archive/v0.36.0.tar.gz | tar zxf - -C $(TMPDIR)
-	patch -d $(TMPDIR)/ffmpeg-6.1.1 -Nbp1 -i $(CURDIR)/patches/ffmpeg-v4l2-request.patch
-	patch -d $(TMPDIR)/mpv-0.36.0 -Nbp1 -i $(CURDIR)/patches/mpv-v4l2-request.patch
 
 SDL2:
 	tar zxf SDL2-2.26.1.GE8300.tgz -C $(TMPDIR)
@@ -48,7 +47,17 @@ dropbear:
 		make PROGRAMS=dropbear -j$(shell nproc) && \
 		install -t $(CURDIR)/System/bin dropbear
 
-curl:
+openssl:
+	mkdir -p build/openssl && cd build/openssl && \
+		$(TMPDIR)/openssl-3.4.0/Configure linux-aarch64 --prefix=/usr \
+		  --libdir=lib --cross-compile-prefix=aarch64-linux-gnu- \
+			shared zlib-dynamic no-tests no-unit-test no-docs \
+			CFLAGS="--sysroot=$(SYSROOT)" \
+			LDFLAGS="--sysroot=$(SYSROOT) -L$(SYSROOT)/usr/lib"
+	make -C build/openssl -j$(shell nproc)
+	make -C build/openssl DESTDIR=$(SYSROOT) install
+
+curl: openssl
 	cmake -B build/curl -G Ninja -S $(TMPDIR)/curl-8.14.1 \
 		-DCMAKE_TOOLCHAIN_FILE=$(CURDIR)/trimui.cmake \
 		-DCMAKE_INSTALL_PREFIX=/usr \
@@ -103,7 +112,8 @@ fribidi:
 	meson install -C build/fribidi --destdir=$(SYSROOT)
 
 libass: harfbuzz fribidi
-	meson setup build/libass $(TMPDIR)/libass-0.17.4 --cross-file=$(CURDIR)/trimui.ini
+	meson setup build/libass $(TMPDIR)/libass-0.17.4 --cross-file=$(CURDIR)/trimui.ini \
+		--default-library=shared -Dasm=disabled
 	meson compile -C build/libass
 	meson install -C build/libass --destdir=$(SYSROOT)
 
@@ -115,14 +125,14 @@ libdrm:
 
 ffmpeg: libass libdrm
 	mkdir -p build/ffmpeg && cd build/ffmpeg && \
-	$(TMPDIR)/ffmpeg-6.1.1/configure --prefix=/usr --disable-shared --enable-static \
+	$(TMPDIR)/ffmpeg-4.4.1/configure --prefix=/usr --enable-shared --disable-static \
 		--enable-cross-compile --cross-prefix=aarch64-linux-gnu- --pkg-config=pkg-config \
 		--arch=aarch64 --cpu=cortex-a53 --target-os=linux --enable-pic --enable-neon \
-		--extra-cflags="-I$(TMPDIR)/v4l-utils-1.24.1/include -I$(CURDIR)/include -I$(PREFIX)/include" \
+		--extra-cflags="-I$(TMPDIR)/v4l-utils-1.24.1/include -I$(PREFIX)/include" \
 		--extra-ldflags="-L$(PREFIX)/lib" --sysroot=$(SYSROOT) \
 		--disable-runtime-cpudetect --disable-programs --disable-debug --disable-avdevice \
 		--enable-nonfree --enable-openssl --disable-doc --enable-zlib --enable-libass \
-		--enable-libdrm --enable-libv4l2 --enable-v4l2_m2m --enable-libudev --enable-v4l2-request \
+		--enable-libdrm --enable-libv4l2 --enable-v4l2_m2m \
 		--disable-protocols --enable-protocol=file,http,tcp,udp,hls,https,tls,httpproxy \
 		--disable-muxers --disable-encoders --enable-encoder=png
 	make -C build/ffmpeg -j$(shell nproc)
@@ -131,7 +141,7 @@ ffmpeg: libass libdrm
 mpv: ffmpeg
 	meson setup build/mpv $(TMPDIR)/mpv-0.36.0 --cross-file=$(CURDIR)/trimui.ini \
 		--default-library=static -Dlibmpv=true -Dcplayer=false -Dtests=false \
-		-Dlua=disabled -Dlibarchive=disabled -Dsdl2=enabled -Dv4l2request=enabled
+		-Dlua=disabled -Dlibarchive=disabled -Dsdl2=enabled
 	meson compile -C build/mpv
 	meson install -C build/mpv --destdir=$(SYSROOT)
 
@@ -144,6 +154,7 @@ wiliwili:
 		-DCMAKE_CXX_FLAGS="-DTRIMUI" \
 		-DUSE_SYSTEM_CURL=ON \
 		-DUSE_SYSTEM_SDL2=ON \
+		-DMPV_NO_FB=ON \
 		-DUSE_SDL2=ON \
 		-DUSE_GLES3=ON
 	cmake --build build/wiliwili
