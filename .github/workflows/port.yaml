@@ -1,0 +1,69 @@
+name: build
+
+on:
+  push:
+    branches: [ smartpro ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sys: [ tg5040, knulli ]
+    steps:
+    - uses: actions/checkout@v6
+    - name: install toolchain
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y meson p7zip-full
+        sudo chown $(id -u):$(id -g) /opt
+        wget -q https://github.com/trimui/toolchain_sdk_smartpro/releases/download/20231018/aarch64-linux-gnu-7.5.0-linaro.tgz
+        wget -q https://github.com/trimui/toolchain_sdk_smartpro/releases/download/20231018/SDK_usr_tg5040_a133p.tgz
+        make -f Makefile.${{ matrix.sys }} toolchain
+    - name: build depency
+      run: make -f Makefile.${{ matrix.sys }} download curl libwebp mpv TMPDIR=${{ runner.temp }}
+    - name: checkout wiliwili
+      uses: actions/checkout@v6
+      with:
+        repository: dragonflylee/wiliwili
+        submodules: true
+        fetch-depth: 0
+        ref: dev
+        path: src/wiliwili
+    - name: build wiliwili
+      run: |
+        make -f Makefile.${{ matrix.sys }} wiliwili
+        mv build/wiliwili/wiliwili build/wiliwili/resources WiliWili
+        curl -Lo WiliWili/resources/cacert.pem https://curl.se/ca/cacert.pem
+        7z a -mx=9 WiliWili-${{ matrix.sys }}.7z ./WiliWili
+    - name: checkout switchfin
+      uses: actions/checkout@v6
+      with:
+        repository: dragonflylee/switchfin
+        submodules: true
+        fetch-tags: true
+        ref: dev
+        path: src/switchfin
+    - name: build switchfin
+      run: |
+        make -f Makefile.${{ matrix.sys }} switchfin
+        mv build/switchfin/Switchfin build/switchfin/resources Switchfin
+        7z a -mx=9 Switchfin-${{ matrix.sys }}.7z ./Switchfin
+    - name: Upload packages
+      uses: softprops/action-gh-release@v3
+      with:
+        tag_name: ${{ matrix.sys }}
+        files: "*-${{ matrix.sys }}.7z"
+    - name: Archive Build Logs
+      if: ${{ failure() }}
+      uses: actions/upload-artifact@v6
+      with:
+        name: logs
+        path: |
+          build/ffmpeg/ffbuild
+          build/*/meson-logs

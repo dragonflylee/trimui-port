@@ -24,12 +24,13 @@ download:
 	wget -qO- https://github.com/webmproject/libwebp/archive/v1.4.0.tar.gz | tar zxf - -C $(TMPDIR)
 	wget -qO- https://github.com/harfbuzz/harfbuzz/releases/download/7.3.0/harfbuzz-7.3.0.tar.xz | tar Jxf - -C $(TMPDIR)
 	wget -qO- https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz | tar Jxf - -C $(TMPDIR)
-	wget -qO- https://github.com/libass/libass/releases/download/0.17.4/libass-0.17.4.tar.xz | tar Jxf - -C $(TMPDIR)
+	wget -qO- https://github.com/libass/libass/releases/download/0.17.5/libass-0.17.5.tar.xz | tar Jxf - -C $(TMPDIR)
 	wget -qO- https://dri.freedesktop.org/libdrm/libdrm-2.4.120.tar.xz | tar Jxf - -C $(TMPDIR)
 	wget -qO- https://linuxtv.org/downloads/v4l-utils/v4l-utils-1.24.1.tar.bz2 | tar jxf - -C $(TMPDIR)
 	wget -qO- https://ffmpeg.org/releases/ffmpeg-6.1.1.tar.xz | tar Jxf - -C $(TMPDIR)
 	wget -qO- https://github.com/mpv-player/mpv/archive/v0.36.0.tar.gz | tar zxf - -C $(TMPDIR)
 	patch -d $(TMPDIR)/ffmpeg-6.1.1 -Nbp1 -i $(CURDIR)/patches/ffmpeg-v4l2-request.patch
+	patch -d $(TMPDIR)/mpv-0.36.0 -Nbp1 -i $(CURDIR)/patches/mpv-v4l2-request.patch
 
 SDL2:
 	tar zxf SDL2-2.26.1.GE8300.tgz -C $(TMPDIR)
@@ -54,6 +55,7 @@ curl:
 		-DCMAKE_BUILD_TYPE=Release \
 		-DBUILD_SHARED_LIBS=OFF \
 		-DCURL_USE_OPENSSL=ON \
+		-DCURL_CA_BUNDLE=resources/cacert.pem \
 		-DHTTP_ONLY=ON \
 		-DCURL_DISABLE_PROGRESS_METER=ON \
 		-DBUILD_CURL_EXE=OFF \
@@ -102,7 +104,7 @@ fribidi:
 	meson install -C build/fribidi --destdir=$(SYSROOT)
 
 libass: harfbuzz fribidi
-	meson setup build/libass $(TMPDIR)/libass-0.17.4 --cross-file=$(CURDIR)/trimui.ini
+	meson setup build/libass $(TMPDIR)/libass-0.17.5 --cross-file=$(CURDIR)/trimui.ini
 	meson compile -C build/libass
 	meson install -C build/libass --destdir=$(SYSROOT)
 
@@ -117,12 +119,13 @@ ffmpeg: libass libdrm
 	$(TMPDIR)/ffmpeg-6.1.1/configure --prefix=/usr --disable-shared --enable-static \
 		--enable-cross-compile --cross-prefix=aarch64-linux-gnu- --pkg-config=pkg-config \
 		--arch=aarch64 --cpu=cortex-a53 --target-os=linux --enable-pic --enable-neon \
-		--extra-cflags="-I$(TMPDIR)/v4l-utils-1.24.1/include -I$(PREFIX)/include" \
+		--extra-cflags="-I$(TMPDIR)/v4l-utils-1.24.1/include -I$(CURDIR)/include -I$(PREFIX)/include" \
 		--extra-ldflags="-L$(PREFIX)/lib" --sysroot=$(SYSROOT) \
 		--disable-runtime-cpudetect --disable-programs --disable-debug --disable-avdevice \
 		--enable-nonfree --enable-openssl --disable-doc --enable-zlib --enable-libass \
 		--enable-libdrm --enable-libv4l2 --enable-v4l2_m2m --enable-libudev --enable-v4l2-request \
 		--disable-protocols --enable-protocol=file,http,tcp,udp,hls,https,tls,httpproxy \
+		--disable-filters --enable-filter=hflip,vflip,transpose \
 		--disable-muxers --disable-encoders --enable-encoder=png
 	make -C build/ffmpeg -j$(shell nproc)
 	make -C build/ffmpeg DESTDIR=$(SYSROOT) install
@@ -130,7 +133,7 @@ ffmpeg: libass libdrm
 mpv: ffmpeg
 	meson setup build/mpv $(TMPDIR)/mpv-0.36.0 --cross-file=$(CURDIR)/trimui.ini \
 		--default-library=static -Dlibmpv=true -Dcplayer=false -Dtests=false \
-		-Dlua=disabled -Dlibarchive=disabled -Dsdl2=enabled
+		-Dlua=disabled -Dlibarchive=disabled -Dsdl2=enabled -Dv4l2request=enabled
 	meson compile -C build/mpv
 	meson install -C build/mpv --destdir=$(SYSROOT)
 
@@ -143,9 +146,12 @@ wiliwili:
 		-DCMAKE_CXX_FLAGS="-DTRIMUI" \
 		-DUSE_SYSTEM_CURL=ON \
 		-DUSE_SYSTEM_SDL2=ON \
+		-DMPV_NO_FB=ON \
 		-DUSE_SDL2=ON \
 		-DUSE_GLES3=ON
 	cmake --build build/wiliwili
+	rm -f build/wiliwili/resources/font/keymap_*.ttf
+	cp -f $(CURDIR)/trimui.ttf build/wiliwili/resources/font/switch_icons.ttf
 
 switchfin:
 	cmake -B build/switchfin -G Ninja -S $(TMPDIR)/switchfin \
@@ -153,11 +159,14 @@ switchfin:
 		-DCMAKE_MODULE_PATH=$(CURDIR)/cmake \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DPLATFORM_DESKTOP=ON \
+		-DCMAKE_CXX_FLAGS="-DTRIMUI" \
 		-DUSE_SYSTEM_CURL=ON \
 		-DUSE_SYSTEM_SDL2=ON \
 		-DUSE_SDL2=ON \
 		-DUSE_GLES3=ON
 	cmake --build build/switchfin
+	rm -f build/switchfin/resources/font/keymap_*.ttf
+	cp -f $(CURDIR)/trimui.ttf build/switchfin/resources/font/switch_icons.ttf
 
 borealis:
 	cmake -B build/borealis -G Ninja -S $(TMPDIR)/wiliwili/library/borealis \
