@@ -27,7 +27,7 @@ download:
 	wget -qO- https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz | tar Jxf - -C $(TMPDIR)
 	wget -qO- https://github.com/libass/libass/releases/download/0.17.5/libass-0.17.5.tar.xz | tar Jxf - -C $(TMPDIR)
 	wget -qO- https://dri.freedesktop.org/libdrm/libdrm-2.4.120.tar.xz | tar Jxf - -C $(TMPDIR)
-	wget -qO- https://linuxtv.org/downloads/v4l-utils/v4l-utils-1.24.1.tar.bz2 | tar jxf - -C $(TMPDIR)
+	wget -qO- https://github.com/gjasny/v4l-utils/archive/v4l-utils-1.24.1.tar.gz | tar zxf - --transform='s|^v4l-utils-4l-utils-1.24.1|v4l-utils-1.24.1|' -C $(TMPDIR)
 	wget -qO- https://ffmpeg.org/releases/ffmpeg-4.4.1.tar.xz | tar Jxf - -C $(TMPDIR)
 	wget -qO- https://github.com/mpv-player/mpv/archive/v0.36.0.tar.gz | tar zxf - -C $(TMPDIR)
 
